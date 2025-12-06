@@ -59,7 +59,7 @@ class UserResource extends Resource
                             ->password()
                             ->dehydrateStateUsing(fn ($state) => filled($state) ? Hash::make($state) : null)
                             ->dehydrated(fn ($state) => filled($state))
-                            ->required(fn (string $context): bool => $context === 'create')
+                            ->required(fn (string $operation): bool => $operation === 'create')
                             ->minLength(6)
                             ->helperText('留空则不修改密码'),
                     ]),
@@ -117,26 +117,28 @@ class UserResource extends Resource
 
                 Tables\Columns\TextColumn::make('full_phone')
                     ->label('手机号码')
-                    ->getStateUsing(fn (User $record) => $record->country_code . ' ' . $record->phone)
+                    ->formatStateUsing(fn (User $record) => $record->country_code . ' ' . $record->phone)
                     ->searchable(['country_code', 'phone']),
 
                 Tables\Columns\TextColumn::make('email')
                     ->label('邮箱')
                     ->searchable(),
 
-                Tables\Columns\BadgeColumn::make('plan')
+                Tables\Columns\TextColumn::make('plan')
                     ->label('订阅计划')
+                    ->badge()
                     ->formatStateUsing(fn (string $state): string => match ($state) {
                         'free' => '免费版',
                         'pro' => '专业版',
                         'enterprise' => '企业版',
                         default => $state,
                     })
-                    ->colors([
-                        'gray' => 'free',
-                        'success' => 'pro',
-                        'warning' => 'enterprise',
-                    ]),
+                    ->color(fn (string $state): string => match ($state) {
+                        'free' => 'gray',
+                        'pro' => 'success',
+                        'enterprise' => 'warning',
+                        default => 'gray',
+                    }),
 
                 Tables\Columns\TextColumn::make('subscription_expiry')
                     ->label('订阅到期')
@@ -224,4 +226,3 @@ class UserResource extends Resource
         ];
     }
 }
-

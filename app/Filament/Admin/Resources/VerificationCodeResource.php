@@ -77,19 +77,21 @@ class VerificationCodeResource extends Resource
                     ->label('验证码')
                     ->copyable(),
 
-                Tables\Columns\BadgeColumn::make('type')
+                Tables\Columns\TextColumn::make('type')
                     ->label('类型')
+                    ->badge()
                     ->formatStateUsing(fn (string $state): string => match ($state) {
                         'login' => '登录',
                         'register' => '注册',
                         'reset' => '重置',
                         default => $state,
                     })
-                    ->colors([
-                        'primary' => 'login',
-                        'success' => 'register',
-                        'warning' => 'reset',
-                    ]),
+                    ->color(fn (string $state): string => match ($state) {
+                        'login' => 'primary',
+                        'register' => 'success',
+                        'reset' => 'warning',
+                        default => 'gray',
+                    }),
 
                 Tables\Columns\IconColumn::make('is_used')
                     ->label('已使用')
@@ -145,4 +147,3 @@ class VerificationCodeResource extends Resource
         return false;
     }
 }
-

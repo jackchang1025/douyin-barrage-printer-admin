@@ -37,7 +37,7 @@ class SubscriptionResource extends Resource
                             ->searchable()
                             ->preload()
                             ->required()
-                            ->getOptionLabelFromRecordUsing(fn (User $record) => "{$record->name} ({$record->country_code}{$record->phone})"),
+                            ->getOptionLabelFromRecordUsing(fn(User $record) => "{$record->name} ({$record->country_code}{$record->phone})"),
 
                         Forms\Components\Select::make('plan')
                             ->label('订阅计划')
@@ -47,8 +47,8 @@ class SubscriptionResource extends Resource
                                 'enterprise' => '企业版',
                             ])
                             ->required()
-                            ->reactive()
-                            ->afterStateUpdated(function ($state, callable $set) {
+                            ->live()
+                            ->afterStateUpdated(function ($state, Forms\Set $set) {
                                 $config = Subscription::getPlanConfig($state);
                                 $set('daily_print_limit', $config['daily_print_limit']);
                                 $set('filters_enabled', $config['filters_enabled']);
@@ -124,39 +124,43 @@ class SubscriptionResource extends Resource
 
                 Tables\Columns\TextColumn::make('user.phone')
                     ->label('手机号')
-                    ->getStateUsing(fn (Subscription $record) => $record->user?->country_code . $record->user?->phone),
+                    ->formatStateUsing(fn(Subscription $record) => $record->user?->country_code . $record->user?->phone),
 
-                Tables\Columns\BadgeColumn::make('plan')
+                Tables\Columns\TextColumn::make('plan')
                     ->label('计划')
-                    ->formatStateUsing(fn (string $state): string => match ($state) {
+                    ->badge()
+                    ->formatStateUsing(fn(string $state): string => match ($state) {
                         'free' => '免费版',
                         'pro' => '专业版',
                         'enterprise' => '企业版',
                         default => $state,
                     })
-                    ->colors([
-                        'gray' => 'free',
-                        'success' => 'pro',
-                        'warning' => 'enterprise',
-                    ]),
+                    ->color(fn(string $state): string => match ($state) {
+                        'free' => 'gray',
+                        'pro' => 'success',
+                        'enterprise' => 'warning',
+                        default => 'gray',
+                    }),
 
-                Tables\Columns\BadgeColumn::make('status')
+                Tables\Columns\TextColumn::make('status')
                     ->label('状态')
-                    ->formatStateUsing(fn (string $state): string => match ($state) {
+                    ->badge()
+                    ->formatStateUsing(fn(string $state): string => match ($state) {
                         'active' => '有效',
                         'cancelled' => '已取消',
                         'expired' => '已过期',
                         default => $state,
                     })
-                    ->colors([
-                        'success' => 'active',
-                        'danger' => 'cancelled',
-                        'gray' => 'expired',
-                    ]),
+                    ->color(fn(string $state): string => match ($state) {
+                        'active' => 'success',
+                        'cancelled' => 'danger',
+                        'expired' => 'gray',
+                        default => 'gray',
+                    }),
 
                 Tables\Columns\TextColumn::make('daily_print_limit')
                     ->label('打印限制')
-                    ->formatStateUsing(fn (int $state): string => $state === -1 ? '无限制' : (string) $state),
+                    ->formatStateUsing(fn(int $state): string => $state === -1 ? '无限制' : (string) $state),
 
                 Tables\Columns\IconColumn::make('filters_enabled')
                     ->label('过滤器')
@@ -179,9 +183,9 @@ class SubscriptionResource extends Resource
                 Tables\Columns\TextColumn::make('days_remaining')
                     ->label('剩余天数')
                     ->badge()
-                    ->color(fn (Subscription $record): string => 
-                        $record->days_remaining > 30 ? 'success' : 
-                        ($record->days_remaining > 7 ? 'warning' : 'danger')
+                    ->color(
+                        fn(Subscription $record): string =>
+                        $record->days_remaining > 30 ? 'success' : ($record->days_remaining > 7 ? 'warning' : 'danger')
                     ),
             ])
             ->filters([
@@ -203,7 +207,7 @@ class SubscriptionResource extends Resource
 
                 Tables\Filters\Filter::make('expiring_soon')
                     ->label('即将过期（7天内）')
-                    ->query(fn ($query) => $query->where('expires_at', '<=', now()->addDays(7))
+                    ->query(fn($query) => $query->where('expires_at', '<=', now()->addDays(7))
                         ->where('expires_at', '>', now())
                         ->where('status', 'active')),
             ])
@@ -272,4 +276,3 @@ class SubscriptionResource extends Resource
         ];
     }
 }
-
