@@ -1,0 +1,275 @@
+<?php
+
+namespace App\Filament\Admin\Resources;
+
+use App\Filament\Admin\Resources\SubscriptionResource\Pages;
+use App\Models\Subscription;
+use App\Models\User;
+use Filament\Forms;
+use Filament\Forms\Form;
+use Filament\Resources\Resource;
+use Filament\Tables;
+use Filament\Tables\Table;
+
+class SubscriptionResource extends Resource
+{
+    protected static ?string $model = Subscription::class;
+
+    protected static ?string $navigationIcon = 'heroicon-o-credit-card';
+
+    protected static ?string $navigationLabel = '订阅管理';
+
+    protected static ?string $modelLabel = '订阅';
+
+    protected static ?string $pluralModelLabel = '订阅';
+
+    protected static ?int $navigationSort = 2;
+
+    public static function form(Form $form): Form
+    {
+        return $form
+            ->schema([
+                Forms\Components\Section::make('订阅信息')
+                    ->schema([
+                        Forms\Components\Select::make('user_id')
+                            ->label('用户')
+                            ->relationship('user', 'name')
+                            ->searchable()
+                            ->preload()
+                            ->required()
+                            ->getOptionLabelFromRecordUsing(fn (User $record) => "{$record->name} ({$record->country_code}{$record->phone})"),
+
+                        Forms\Components\Select::make('plan')
+                            ->label('订阅计划')
+                            ->options([
+                                'free' => '免费版',
+                                'pro' => '专业版',
+                                'enterprise' => '企业版',
+                            ])
+                            ->required()
+                            ->reactive()
+                            ->afterStateUpdated(function ($state, callable $set) {
+                                $config = Subscription::getPlanConfig($state);
+                                $set('daily_print_limit', $config['daily_print_limit']);
+                                $set('filters_enabled', $config['filters_enabled']);
+                                $set('custom_template_enabled', $config['custom_template_enabled']);
+                                $set('api_access_enabled', $config['api_access_enabled']);
+                            }),
+
+                        Forms\Components\Select::make('status')
+                            ->label('状态')
+                            ->options([
+                                'active' => '有效',
+                                'cancelled' => '已取消',
+                                'expired' => '已过期',
+                            ])
+                            ->default('active')
+                            ->required(),
+
+                        Forms\Components\Grid::make(2)
+                            ->schema([
+                                Forms\Components\DateTimePicker::make('starts_at')
+                                    ->label('开始时间')
+                                    ->required()
+                                    ->default(now()),
+
+                                Forms\Components\DateTimePicker::make('expires_at')
+                                    ->label('过期时间')
+                                    ->nullable(),
+                            ]),
+                    ]),
+
+                Forms\Components\Section::make('功能配置')
+                    ->schema([
+                        Forms\Components\TextInput::make('daily_print_limit')
+                            ->label('每日打印限制')
+                            ->numeric()
+                            ->default(10)
+                            ->helperText('-1 表示无限制'),
+
+                        Forms\Components\Toggle::make('filters_enabled')
+                            ->label('启用过滤器')
+                            ->default(false),
+
+                        Forms\Components\Toggle::make('custom_template_enabled')
+                            ->label('启用自定义模板')
+                            ->default(false),
+
+                        Forms\Components\Toggle::make('api_access_enabled')
+                            ->label('启用 API 访问')
+                            ->default(false),
+                    ]),
+
+                Forms\Components\Section::make('其他')
+                    ->schema([
+                        Forms\Components\KeyValue::make('metadata')
+                            ->label('元数据')
+                            ->nullable(),
+                    ])
+                    ->collapsed(),
+            ]);
+    }
+
+    public static function table(Table $table): Table
+    {
+        return $table
+            ->columns([
+                Tables\Columns\TextColumn::make('id')
+                    ->label('ID')
+                    ->sortable(),
+
+                Tables\Columns\TextColumn::make('user.name')
+                    ->label('用户')
+                    ->searchable(),
+
+                Tables\Columns\TextColumn::make('user.phone')
+                    ->label('手机号')
+                    ->getStateUsing(fn (Subscription $record) => $record->user?->country_code . $record->user?->phone),
+
+                Tables\Columns\BadgeColumn::make('plan')
+                    ->label('计划')
+                    ->formatStateUsing(fn (string $state): string => match ($state) {
+                        'free' => '免费版',
+                        'pro' => '专业版',
+                        'enterprise' => '企业版',
+                        default => $state,
+                    })
+                    ->colors([
+                        'gray' => 'free',
+                        'success' => 'pro',
+                        'warning' => 'enterprise',
+                    ]),
+
+                Tables\Columns\BadgeColumn::make('status')
+                    ->label('状态')
+                    ->formatStateUsing(fn (string $state): string => match ($state) {
+                        'active' => '有效',
+                        'cancelled' => '已取消',
+                        'expired' => '已过期',
+                        default => $state,
+                    })
+                    ->colors([
+                        'success' => 'active',
+                        'danger' => 'cancelled',
+                        'gray' => 'expired',
+                    ]),
+
+                Tables\Columns\TextColumn::make('daily_print_limit')
+                    ->label('打印限制')
+                    ->formatStateUsing(fn (int $state): string => $state === -1 ? '无限制' : (string) $state),
+
+                Tables\Columns\IconColumn::make('filters_enabled')
+                    ->label('过滤器')
+                    ->boolean(),
+
+                Tables\Columns\IconColumn::make('custom_template_enabled')
+                    ->label('自定义模板')
+                    ->boolean(),
+
+                Tables\Columns\TextColumn::make('starts_at')
+                    ->label('开始时间')
+                    ->dateTime('Y-m-d')
+                    ->sortable(),
+
+                Tables\Columns\TextColumn::make('expires_at')
+                    ->label('过期时间')
+                    ->dateTime('Y-m-d')
+                    ->sortable(),
+
+                Tables\Columns\TextColumn::make('days_remaining')
+                    ->label('剩余天数')
+                    ->badge()
+                    ->color(fn (Subscription $record): string => 
+                        $record->days_remaining > 30 ? 'success' : 
+                        ($record->days_remaining > 7 ? 'warning' : 'danger')
+                    ),
+            ])
+            ->filters([
+                Tables\Filters\SelectFilter::make('plan')
+                    ->label('订阅计划')
+                    ->options([
+                        'free' => '免费版',
+                        'pro' => '专业版',
+                        'enterprise' => '企业版',
+                    ]),
+
+                Tables\Filters\SelectFilter::make('status')
+                    ->label('状态')
+                    ->options([
+                        'active' => '有效',
+                        'cancelled' => '已取消',
+                        'expired' => '已过期',
+                    ]),
+
+                Tables\Filters\Filter::make('expiring_soon')
+                    ->label('即将过期（7天内）')
+                    ->query(fn ($query) => $query->where('expires_at', '<=', now()->addDays(7))
+                        ->where('expires_at', '>', now())
+                        ->where('status', 'active')),
+            ])
+            ->actions([
+                Tables\Actions\EditAction::make(),
+                Tables\Actions\Action::make('extend')
+                    ->label('延长')
+                    ->icon('heroicon-o-plus-circle')
+                    ->color('success')
+                    ->form([
+                        Forms\Components\Select::make('duration')
+                            ->label('延长时间')
+                            ->options([
+                                7 => '7 天',
+                                30 => '30 天',
+                                90 => '90 天',
+                                365 => '365 天',
+                            ])
+                            ->required(),
+                    ])
+                    ->action(function (Subscription $record, array $data) {
+                        $currentExpiry = $record->expires_at ?? now();
+                        if ($currentExpiry->isPast()) {
+                            $currentExpiry = now();
+                        }
+                        $record->update([
+                            'expires_at' => $currentExpiry->addDays($data['duration']),
+                            'status' => 'active',
+                        ]);
+
+                        // 同步更新用户信息
+                        $record->user?->update([
+                            'subscription_expiry' => $record->expires_at,
+                        ]);
+                    }),
+                Tables\Actions\Action::make('cancel')
+                    ->label('取消')
+                    ->icon('heroicon-o-x-circle')
+                    ->color('danger')
+                    ->requiresConfirmation()
+                    ->action(function (Subscription $record) {
+                        $record->update(['status' => 'cancelled']);
+                    }),
+            ])
+            ->bulkActions([
+                Tables\Actions\BulkActionGroup::make([
+                    Tables\Actions\DeleteBulkAction::make(),
+                ]),
+            ])
+            ->defaultSort('created_at', 'desc');
+    }
+
+    public static function getRelations(): array
+    {
+        return [
+            //
+        ];
+    }
+
+    public static function getPages(): array
+    {
+        return [
+            'index' => Pages\ListSubscriptions::route('/'),
+            'create' => Pages\CreateSubscription::route('/create'),
+            'edit' => Pages\EditSubscription::route('/{record}/edit'),
+        ];
+    }
+}
+
