@@ -14,7 +14,7 @@ class Subscription extends Model
      * @var list<string>
      */
     protected $fillable = [
-        'user_id',
+        'member_id',
         'plan',
         'status',
         'starts_at',
@@ -90,11 +90,11 @@ class Subscription extends Model
     }
 
     /**
-     * 获取用户
+     * 获取会员
      */
-    public function user(): BelongsTo
+    public function member(): BelongsTo
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(Member::class);
     }
 
     /**
@@ -139,22 +139,22 @@ class Subscription extends Model
     }
 
     /**
-     * 创建新订阅
+     * 为会员创建新订阅
      */
-    public static function createForUser(
-        User $user, 
-        string $plan, 
+    public static function createForMember(
+        Member $member,
+        string $plan,
         int $durationDays = 30
     ): self {
-        // 取消用户当前有效订阅
-        self::where('user_id', $user->id)
+        // 取消会员当前有效订阅
+        self::where('member_id', $member->id)
             ->where('status', self::STATUS_ACTIVE)
             ->update(['status' => self::STATUS_CANCELLED]);
 
         $config = self::getPlanConfig($plan);
-        
+
         $subscription = self::create([
-            'user_id' => $user->id,
+            'member_id' => $member->id,
             'plan' => $plan,
             'status' => self::STATUS_ACTIVE,
             'starts_at' => now(),
@@ -165,8 +165,8 @@ class Subscription extends Model
             'api_access_enabled' => $config['api_access_enabled'],
         ]);
 
-        // 更新用户的订阅信息
-        $user->update([
+        // 更新会员的订阅信息
+        $member->update([
             'plan' => $plan,
             'subscription_expiry' => $subscription->expires_at,
         ]);
@@ -174,4 +174,3 @@ class Subscription extends Model
         return $subscription;
     }
 }
-

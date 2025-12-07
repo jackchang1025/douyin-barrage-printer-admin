@@ -1,0 +1,211 @@
+# Laravel 异常处理开发规范
+
+## 核心原则
+
+在 Laravel 项目中，应该充分利用框架的异常处理机制，而不是在方法中返回错误数组。这样可以：
+
+1. **统一错误处理** - 通过 `app/Exceptions/Handler.php` 集中处理所有异常
+2. **代码更清晰** - 业务逻辑不需要处理错误返回，只关注正常流程
+3. **类型安全** - 返回值类型明确，不会混淆成功和失败的返回
+4. **可追踪性** - 异常自动记录堆栈信息，便于调试
+
+## 错误示例 ❌
+
+```php
+// 错误：返回数组表示成功/失败
+public function sendSms(string $phone, string $code): array
+{
+    try {
+        $this->sms->send($phone, $code);
+        return ['success' => true, 'message' => '发送成功'];
+    } catch (\Exception $e) {
+        return ['success' => false, 'message' => $e->getMessage()];
+    }
+}
+
+// 调用方需要检查返回值
+$result = $smsService->sendSms($phone, $code);
+if (!$result['success']) {
+    return response()->json(['message' => $result['message']], 500);
+}
+```
+
+## 正确示例 ✅
+
+```php
+// 正确：抛出自定义异常
+public function sendSms(string $phone, string $code): void
+{
+    try {
+        $this->sms->send($phone, $code);
+    } catch (NoGatewayAvailableException $e) {
+        throw new SmsException('短信发送失败，请稍后重试', 0, $e);
+    }
+}
+
+// 调用方代码简洁，异常由框架统一处理
+$smsService->sendSms($phone, $code);
+// 如果需要自定义响应，可以 try-catch
+```
+
+## 自定义异常类规范
+
+### 目录结构
+
+```
+app/Exceptions/
+├── Handler.php                 # 全局异常处理器
+├── BusinessException.php       # 业务异常基类
+├── Sms/
+│   ├── SmsException.php        # 短信异常基类
+│   ├── SmsSendFailedException.php
+│   └── SmsRateLimitException.php
+├── Auth/
+│   ├── AuthException.php
+│   └── InvalidCredentialsException.php
+└── ...
+```
+
+### 业务异常基类
+
+```php
+<?php
+
+namespace App\Exceptions;
+
+use Exception;
+use Illuminate\Http\JsonResponse;
+
+abstract class BusinessException extends Exception
+{
+    protected int $httpCode = 400;
+    protected string $errorCode = 'BUSINESS_ERROR';
+
+    public function render(): JsonResponse
+    {
+        return response()->json([
+            'message' => $this->getMessage(),
+            'error_code' => $this->errorCode,
+        ], $this->httpCode);
+    }
+
+    public function report(): bool
+    {
+        // 返回 false 表示不记录到日志（可选）
+        return false;
+    }
+}
+```
+
+### 具体异常类示例
+
+```php
+<?php
+
+namespace App\Exceptions\Sms;
+
+use App\Exceptions\BusinessException;
+
+class SmsSendFailedException extends BusinessException
+{
+    protected int $httpCode = 500;
+    protected string $errorCode = 'SMS_SEND_FAILED';
+
+    public function __construct(string $message = '短信发送失败，请稍后重试', ?\Throwable $previous = null)
+    {
+        parent::__construct($message, 0, $previous);
+    }
+}
+```
+
+## 异常处理器配置
+
+在 `bootstrap/app.php` 或 `app/Exceptions/Handler.php` 中配置：
+
+```php
+// Laravel 11+ (bootstrap/app.php)
+->withExceptions(function (Exceptions $exceptions) {
+    // 自定义异常会自动调用 render() 方法
+    // 无需额外配置
+    
+    // 可以添加全局异常报告
+    $exceptions->report(function (Throwable $e) {
+        // 自定义日志记录
+    });
+})
+```
+
+## 服务层规范
+
+### 方法返回值
+
+- **成功** - 返回数据或 `void`
+- **失败** - 抛出对应的异常
+
+```php
+class SmsService
+{
+    /**
+     * 发送验证码
+     *
+     * @throws SmsSendFailedException 发送失败时抛出
+     * @throws SmsRateLimitException 频率限制时抛出
+     */
+    public function sendVerificationCode(string $phone, string $code, string $type): void
+    {
+        // 业务逻辑...
+        // 失败时抛出异常，不返回错误数组
+    }
+}
+```
+
+### 控制器层
+
+```php
+class AuthController extends Controller
+{
+    public function sendCode(Request $request): JsonResponse
+    {
+        $request->validate([...]);
+
+        // 直接调用服务，异常由框架处理
+        $this->smsService->sendVerificationCode(
+            $request->countryCode . $request->phone,
+            $code,
+            $request->type
+        );
+
+        return response()->json(['message' => '验证码已发送']);
+    }
+}
+```
+
+## 常见异常场景
+
+| 场景 | 异常类 | HTTP 状态码 |
+|------|--------|-------------|
+| 短信发送失败 | `SmsSendFailedException` | 500 |
+| 短信频率限制 | `SmsRateLimitException` | 429 |
+| 验证码错误 | `InvalidVerificationCodeException` | 400 |
+| 用户不存在 | `UserNotFoundException` | 404 |
+| 密码错误 | `InvalidCredentialsException` | 401 |
+| 账号被禁用 | `AccountDisabledException` | 403 |
+| 订阅过期 | `SubscriptionExpiredException` | 403 |
+
+## 检查清单
+
+实现服务层时，确保：
+
+- [ ] 方法成功时返回数据或 `void`，不返回 `['success' => true]`
+- [ ] 方法失败时抛出对应的自定义异常
+- [ ] 自定义异常继承 `BusinessException` 基类
+- [ ] 异常类实现 `render()` 方法返回 JSON 响应
+- [ ] 在 PHPDoc 中使用 `@throws` 注明可能抛出的异常
+- [ ] 控制器层保持简洁，不需要 try-catch（除非需要自定义处理）
+
+## 相关文件
+
+- `app/Exceptions/BusinessException.php` - 业务异常基类
+- `app/Exceptions/Sms/*.php` - 短信相关异常
+- `app/Exceptions/Auth/*.php` - 认证相关异常
+- `bootstrap/app.php` - 异常处理器配置（Laravel 11+）

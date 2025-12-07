@@ -1,0 +1,169 @@
+---
+alwaysApply: true
+---
+
+# 抖音弹幕打印系统 - 后台管理服务
+
+## 项目概述
+
+这是抖音弹幕打印系统的后台管理服务，提供：
+- 会员用户管理 API（注册、登录、订阅）
+- Filament 后台管理面板
+- 短信验证码服务
+
+## 开发环境
+
+### 技术栈
+- **框架**: Laravel 12.x
+- **PHP**: 8.2+
+- **数据库**: MySQL 8.0
+- **后台面板**: Filament 3.x
+- **认证**: Laravel Sanctum
+- **短信服务**: overtrue/easy-sms
+
+### 运行环境
+- **WSL2 + Docker**: 使用 Laravel Sail 作为开发环境
+- **容器编排**: Docker Compose
+
+## 命令执行规范
+
+### ⚠️ 重要：所有 Artisan 命令必须通过 Sail 执行
+
+```bash
+# ✅ 正确方式
+./vendor/bin/sail artisan migrate
+./vendor/bin/sail artisan db:seed
+./vendor/bin/sail artisan sms:test 13800138000
+./vendor/bin/sail artisan test
+
+# ❌ 错误方式（在宿主机直接执行会连接不到数据库）
+php artisan migrate
+```
+
+### 常用 Sail 命令
+
+```bash
+# 启动服务
+./vendor/bin/sail up -d
+
+# 停止服务
+./vendor/bin/sail down
+
+# 进入容器
+./vendor/bin/sail shell
+
+# Composer 操作
+./vendor/bin/sail composer require package/name
+./vendor/bin/sail composer install
+
+# NPM 操作
+./vendor/bin/sail npm install
+./vendor/bin/sail npm run dev
+
+# 数据库操作
+./vendor/bin/sail artisan migrate
+./vendor/bin/sail artisan migrate:fresh --seed
+./vendor/bin/sail artisan db:seed
+
+# 运行测试
+./vendor/bin/sail artisan test
+./vendor/bin/sail pest
+
+# 清理缓存
+./vendor/bin/sail artisan config:clear
+./vendor/bin/sail artisan cache:clear
+./vendor/bin/sail artisan route:clear
+
+# 短信测试
+./vendor/bin/sail artisan sms:test 13800138000 --type=login
+```
+
+### 简化别名（可选）
+
+在 `~/.bashrc` 或 `~/.zshrc` 中添加：
+
+```bash
+alias sail='./vendor/bin/sail'
+```
+
+之后可以使用：
+
+```bash
+sail artisan migrate
+sail up -d
+sail down
+```
+
+## 项目结构
+
+```
+app/
+├── Console/Commands/     # Artisan 命令
+├── Exceptions/           # 自定义异常
+│   ├── BusinessException.php
+│   └── Sms/              # 短信相关异常
+├── Filament/Admin/       # Filament 后台资源
+├── Http/Controllers/Api/ # API 控制器
+├── Models/               # 数据模型
+│   ├── User.php          # 后台管理员
+│   ├── Member.php        # 前端会员用户
+│   ├── Subscription.php  # 订阅记录
+│   └── VerificationCode.php
+└── Services/             # 业务服务
+    └── SmsService.php    # 短信服务
+
+config/
+├── easysms.php           # 短信服务配置（自定义服务提供者）
+└── services.php          # 第三方服务配置
+
+app/Providers/
+└── EasySmsServiceProvider.php  # 短信服务提供者
+
+database/
+├── factories/            # 模型工厂
+├── migrations/           # 数据库迁移
+└── seeders/              # 数据填充
+
+tests/
+├── Feature/Api/          # API 功能测试
+└── Unit/Services/        # 单元测试
+```
+
+## 数据模型说明
+
+| 模型 | 表名 | 说明 |
+|------|------|------|
+| `User` | `users` | 后台管理员（仅 Filament 登录） |
+| `Member` | `members` | 前端会员用户（API 认证） |
+| `Subscription` | `subscriptions` | 会员订阅记录 |
+| `VerificationCode` | `verification_codes` | 手机验证码 |
+
+## API 认证
+
+- 使用 Laravel Sanctum Token 认证
+- API 使用 `auth:member` guard
+- Filament 后台使用 `auth:web` guard
+
+## 环境变量
+
+确保 `.env` 文件包含以下配置：
+
+```env
+# 阿里云短信
+ALIYUN_SMS_ACCESS_KEY_ID=
+ALIYUN_SMS_ACCESS_KEY_SECRET=
+ALIYUN_SMS_SIGN_NAME=
+
+# 短信模板
+ALIYUN_SMS_TEMPLATE_LOGIN=100001
+ALIYUN_SMS_TEMPLATE_REGISTER=100001
+ALIYUN_SMS_TEMPLATE_RESET=100003
+```
+
+## 开发规范
+
+1. **异常处理**: 使用自定义异常类，不在方法中返回错误数组
+2. **服务层**: 业务逻辑放在 `app/Services/` 目录
+3. **测试**: 使用 Pest 测试框架
+4. **代码风格**: 遵循 PSR-12 规范
+

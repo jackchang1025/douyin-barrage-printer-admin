@@ -3,8 +3,8 @@
 namespace App\Filament\Admin\Resources;
 
 use App\Filament\Admin\Resources\SubscriptionResource\Pages;
+use App\Models\Member;
 use App\Models\Subscription;
-use App\Models\User;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -31,13 +31,13 @@ class SubscriptionResource extends Resource
             ->schema([
                 Forms\Components\Section::make('订阅信息')
                     ->schema([
-                        Forms\Components\Select::make('user_id')
-                            ->label('用户')
-                            ->relationship('user', 'name')
+                        Forms\Components\Select::make('member_id')
+                            ->label('会员')
+                            ->relationship('member', 'nickname')
                             ->searchable()
                             ->preload()
                             ->required()
-                            ->getOptionLabelFromRecordUsing(fn(User $record) => "{$record->name} ({$record->country_code}{$record->phone})"),
+                            ->getOptionLabelFromRecordUsing(fn(Member $record) => "{$record->nickname} ({$record->country_code}{$record->phone})"),
 
                         Forms\Components\Select::make('plan')
                             ->label('订阅计划')
@@ -118,13 +118,14 @@ class SubscriptionResource extends Resource
                     ->label('ID')
                     ->sortable(),
 
-                Tables\Columns\TextColumn::make('user.name')
-                    ->label('用户')
-                    ->searchable(),
+                Tables\Columns\TextColumn::make('member.nickname')
+                    ->label('会员')
+                    ->searchable()
+                    ->default('-'),
 
-                Tables\Columns\TextColumn::make('user.phone')
+                Tables\Columns\TextColumn::make('member.phone')
                     ->label('手机号')
-                    ->formatStateUsing(fn(Subscription $record) => $record->user?->country_code . $record->user?->phone),
+                    ->formatStateUsing(fn(Subscription $record) => $record->member?->country_code . ' ' . $record->member?->phone),
 
                 Tables\Columns\TextColumn::make('plan')
                     ->label('计划')
@@ -238,8 +239,8 @@ class SubscriptionResource extends Resource
                             'status' => 'active',
                         ]);
 
-                        // 同步更新用户信息
-                        $record->user?->update([
+                        // 同步更新会员信息
+                        $record->member?->update([
                             'subscription_expiry' => $record->expires_at,
                         ]);
                     }),

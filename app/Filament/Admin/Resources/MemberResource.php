@@ -2,8 +2,8 @@
 
 namespace App\Filament\Admin\Resources;
 
-use App\Filament\Admin\Resources\UserResource\Pages;
-use App\Models\User;
+use App\Filament\Admin\Resources\MemberResource\Pages;
+use App\Models\Member;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -11,17 +11,17 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Support\Facades\Hash;
 
-class UserResource extends Resource
+class MemberResource extends Resource
 {
-    protected static ?string $model = User::class;
+    protected static ?string $model = Member::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-users';
+    protected static ?string $navigationIcon = 'heroicon-o-user-group';
 
-    protected static ?string $navigationLabel = '用户管理';
+    protected static ?string $navigationLabel = '会员管理';
 
-    protected static ?string $modelLabel = '用户';
+    protected static ?string $modelLabel = '会员';
 
-    protected static ?string $pluralModelLabel = '用户';
+    protected static ?string $pluralModelLabel = '会员';
 
     protected static ?int $navigationSort = 1;
 
@@ -31,14 +31,8 @@ class UserResource extends Resource
             ->schema([
                 Forms\Components\Section::make('基本信息')
                     ->schema([
-                        Forms\Components\TextInput::make('name')
-                            ->label('用户名')
-                            ->required()
-                            ->maxLength(255),
-
-                        Forms\Components\TextInput::make('email')
-                            ->label('邮箱')
-                            ->email()
+                        Forms\Components\TextInput::make('nickname')
+                            ->label('昵称')
                             ->maxLength(255),
 
                         Forms\Components\Grid::make(2)
@@ -46,11 +40,13 @@ class UserResource extends Resource
                                 Forms\Components\TextInput::make('country_code')
                                     ->label('国家区号')
                                     ->placeholder('+86')
+                                    ->required()
                                     ->maxLength(10),
 
                                 Forms\Components\TextInput::make('phone')
                                     ->label('手机号码')
                                     ->tel()
+                                    ->required()
                                     ->maxLength(20),
                             ]),
 
@@ -62,6 +58,11 @@ class UserResource extends Resource
                             ->required(fn (string $operation): bool => $operation === 'create')
                             ->minLength(6)
                             ->helperText('留空则不修改密码'),
+
+                        Forms\Components\TextInput::make('avatar')
+                            ->label('头像URL')
+                            ->url()
+                            ->maxLength(255),
                     ]),
 
                 Forms\Components\Section::make('订阅信息')
@@ -81,25 +82,35 @@ class UserResource extends Resource
                             ->nullable(),
                     ]),
 
-                Forms\Components\Section::make('权限设置')
+                Forms\Components\Section::make('账号状态')
                     ->schema([
-                        Forms\Components\Toggle::make('is_admin')
-                            ->label('管理员权限')
-                            ->helperText('开启后可访问管理后台')
-                            ->default(false),
-                    ]),
-
-                Forms\Components\Section::make('验证状态')
-                    ->schema([
-                        Forms\Components\DateTimePicker::make('email_verified_at')
-                            ->label('邮箱验证时间')
-                            ->nullable(),
+                        Forms\Components\Select::make('status')
+                            ->label('状态')
+                            ->options([
+                                'active' => '正常',
+                                'disabled' => '禁用',
+                                'banned' => '封禁',
+                            ])
+                            ->default('active')
+                            ->required(),
 
                         Forms\Components\DateTimePicker::make('phone_verified_at')
                             ->label('手机验证时间')
                             ->nullable(),
+                    ]),
+
+                Forms\Components\Section::make('登录信息')
+                    ->schema([
+                        Forms\Components\DateTimePicker::make('last_login_at')
+                            ->label('最后登录时间')
+                            ->disabled(),
+
+                        Forms\Components\TextInput::make('last_login_ip')
+                            ->label('最后登录IP')
+                            ->disabled(),
                     ])
-                    ->collapsed(),
+                    ->collapsed()
+                    ->visible(fn (string $operation): bool => $operation === 'edit'),
             ]);
     }
 
@@ -111,18 +122,15 @@ class UserResource extends Resource
                     ->label('ID')
                     ->sortable(),
 
-                Tables\Columns\TextColumn::make('name')
-                    ->label('用户名')
-                    ->searchable(),
+                Tables\Columns\TextColumn::make('nickname')
+                    ->label('昵称')
+                    ->searchable()
+                    ->default('-'),
 
                 Tables\Columns\TextColumn::make('full_phone')
                     ->label('手机号码')
-                    ->formatStateUsing(fn (User $record) => $record->country_code . ' ' . $record->phone)
+                    ->formatStateUsing(fn (Member $record) => $record->country_code . ' ' . $record->phone)
                     ->searchable(['country_code', 'phone']),
-
-                Tables\Columns\TextColumn::make('email')
-                    ->label('邮箱')
-                    ->searchable(),
 
                 Tables\Columns\TextColumn::make('plan')
                     ->label('订阅计划')
@@ -143,11 +151,35 @@ class UserResource extends Resource
                 Tables\Columns\TextColumn::make('subscription_expiry')
                     ->label('订阅到期')
                     ->dateTime('Y-m-d')
-                    ->sortable(),
+                    ->sortable()
+                    ->default('-'),
 
-                Tables\Columns\IconColumn::make('is_admin')
-                    ->label('管理员')
-                    ->boolean(),
+                Tables\Columns\TextColumn::make('status')
+                    ->label('状态')
+                    ->badge()
+                    ->formatStateUsing(fn (string $state): string => match ($state) {
+                        'active' => '正常',
+                        'disabled' => '禁用',
+                        'banned' => '封禁',
+                        default => $state,
+                    })
+                    ->color(fn (string $state): string => match ($state) {
+                        'active' => 'success',
+                        'disabled' => 'warning',
+                        'banned' => 'danger',
+                        default => 'gray',
+                    }),
+
+                Tables\Columns\IconColumn::make('phone_verified_at')
+                    ->label('手机验证')
+                    ->boolean()
+                    ->getStateUsing(fn (Member $record): bool => $record->phone_verified_at !== null),
+
+                Tables\Columns\TextColumn::make('last_login_at')
+                    ->label('最后登录')
+                    ->dateTime('Y-m-d H:i')
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('注册时间')
@@ -164,8 +196,13 @@ class UserResource extends Resource
                         'enterprise' => '企业版',
                     ]),
 
-                Tables\Filters\TernaryFilter::make('is_admin')
-                    ->label('管理员'),
+                Tables\Filters\SelectFilter::make('status')
+                    ->label('状态')
+                    ->options([
+                        'active' => '正常',
+                        'disabled' => '禁用',
+                        'banned' => '封禁',
+                    ]),
 
                 Tables\Filters\Filter::make('subscription_expired')
                     ->label('订阅已过期')
@@ -182,6 +219,13 @@ class UserResource extends Resource
                     ->icon('heroicon-o-plus-circle')
                     ->color('success')
                     ->form([
+                        Forms\Components\Select::make('plan')
+                            ->label('订阅计划')
+                            ->options([
+                                'pro' => '专业版',
+                                'enterprise' => '企业版',
+                            ])
+                            ->required(),
                         Forms\Components\Select::make('duration')
                             ->label('延长时间')
                             ->options([
@@ -192,13 +236,24 @@ class UserResource extends Resource
                             ])
                             ->required(),
                     ])
-                    ->action(function (User $record, array $data) {
+                    ->action(function (Member $record, array $data) {
                         $currentExpiry = $record->subscription_expiry ?? now();
                         if ($currentExpiry->isPast()) {
                             $currentExpiry = now();
                         }
                         $record->update([
+                            'plan' => $data['plan'],
                             'subscription_expiry' => $currentExpiry->addDays($data['duration']),
+                        ]);
+                    }),
+                Tables\Actions\Action::make('toggle_status')
+                    ->label(fn (Member $record): string => $record->status === 'active' ? '禁用' : '启用')
+                    ->icon(fn (Member $record): string => $record->status === 'active' ? 'heroicon-o-no-symbol' : 'heroicon-o-check-circle')
+                    ->color(fn (Member $record): string => $record->status === 'active' ? 'danger' : 'success')
+                    ->requiresConfirmation()
+                    ->action(function (Member $record) {
+                        $record->update([
+                            'status' => $record->status === 'active' ? 'disabled' : 'active',
                         ]);
                     }),
             ])
@@ -220,9 +275,10 @@ class UserResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListUsers::route('/'),
-            'create' => Pages\CreateUser::route('/create'),
-            'edit' => Pages\EditUser::route('/{record}/edit'),
+            'index' => Pages\ListMembers::route('/'),
+            'create' => Pages\CreateMember::route('/create'),
+            'edit' => Pages\EditMember::route('/{record}/edit'),
         ];
     }
 }
+

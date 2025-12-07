@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\User;
+use App\Models\Member;
 use App\Models\Subscription;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
@@ -17,61 +18,42 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // 创建管理员用户
+        // 创建后台管理员
         $admin = User::firstOrCreate(
-            ['email' => 'admin@example.com'],
+            ['email' => 'admin@admin.com'],
             [
                 'name' => '系统管理员',
-                'email' => 'admin@example.com',
-                'country_code' => '+86',
-                'phone' => '13800000000',
-                'password' => Hash::make('admin123'),
-                'is_admin' => true,
-                'plan' => 'enterprise',
-                'subscription_expiry' => now()->addYears(10),
+                'email' => 'admin@admin.com',
+                'password' => Hash::make('password'),
                 'email_verified_at' => now(),
-                'phone_verified_at' => now(),
             ]
         );
 
-        // 为管理员创建企业版订阅
         if ($admin->wasRecentlyCreated) {
-            Subscription::create([
-                'user_id' => $admin->id,
-                'plan' => Subscription::PLAN_ENTERPRISE,
-                'status' => Subscription::STATUS_ACTIVE,
-                'starts_at' => now(),
-                'expires_at' => now()->addYears(10),
-                'daily_print_limit' => -1,
-                'filters_enabled' => true,
-                'custom_template_enabled' => true,
-                'api_access_enabled' => true,
-            ]);
-
-            $this->command->info('管理员账户已创建:');
-            $this->command->info('  邮箱: admin@example.com');
-            $this->command->info('  密码: admin123');
+            $this->command->info('✅ 后台管理员已创建:');
+            $this->command->info('   邮箱: admin@admin.com');
+            $this->command->info('   密码: password');
+            $this->command->warn('   请登录后立即修改密码！');
         }
 
-        // 创建测试用户
-        $testUser = User::firstOrCreate(
+        // 创建测试会员
+        $testMember = Member::firstOrCreate(
             ['phone' => '13900000000', 'country_code' => '+86'],
             [
-                'name' => '测试用户',
-                'email' => 'test@example.com',
+                'nickname' => '测试会员',
                 'country_code' => '+86',
                 'phone' => '13900000000',
                 'password' => Hash::make('123456'),
-                'is_admin' => false,
                 'plan' => 'pro',
                 'subscription_expiry' => now()->addDays(30),
                 'phone_verified_at' => now(),
+                'status' => Member::STATUS_ACTIVE,
             ]
         );
 
-        if ($testUser->wasRecentlyCreated) {
+        if ($testMember->wasRecentlyCreated) {
             Subscription::create([
-                'user_id' => $testUser->id,
+                'member_id' => $testMember->id,
                 'plan' => Subscription::PLAN_PRO,
                 'status' => Subscription::STATUS_ACTIVE,
                 'starts_at' => now(),
@@ -82,9 +64,9 @@ class DatabaseSeeder extends Seeder
                 'api_access_enabled' => false,
             ]);
 
-            $this->command->info('测试用户已创建:');
-            $this->command->info('  手机: +86 13900000000');
-            $this->command->info('  密码: 123456');
+            $this->command->info('✅ 测试会员已创建:');
+            $this->command->info('   手机: +86 13900000000');
+            $this->command->info('   密码: 123456');
         }
     }
 }
