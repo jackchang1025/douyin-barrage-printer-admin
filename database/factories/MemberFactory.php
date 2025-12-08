@@ -3,6 +3,8 @@
 namespace Database\Factories;
 
 use App\Models\Member;
+use App\Models\Plan;
+use App\Models\Subscription;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
 
@@ -27,7 +29,6 @@ class MemberFactory extends Factory
             'password' => Hash::make('password'),
             'avatar' => null,
             'plan' => 'free',
-            'subscription_expiry' => null,
             'phone_verified_at' => now(),
             'status' => Member::STATUS_ACTIVE,
             'last_login_at' => null,
@@ -46,36 +47,101 @@ class MemberFactory extends Factory
     }
 
     /**
-     * Pro 会员
+     * Pro 会员（自动创建订阅记录）
      */
     public function pro(): static
     {
         return $this->state(fn (array $attributes) => [
             'plan' => 'pro',
-            'subscription_expiry' => now()->addDays(30),
-        ]);
+        ])->afterCreating(function (Member $member) {
+            $plan = Plan::findByCode('pro');
+            Subscription::create([
+                'member_id' => $member->id,
+                'plan_id' => $plan?->id,
+                'plan' => 'pro',
+                'status' => 'active',
+                'starts_at' => now(),
+                'expires_at' => now()->addDays(30),
+                'daily_print_limit' => $plan?->daily_print_limit ?? 100,
+                'filters_enabled' => $plan?->filters_enabled ?? true,
+                'custom_template_enabled' => $plan?->custom_template_enabled ?? true,
+                'api_access_enabled' => $plan?->api_access_enabled ?? false,
+            ]);
+        });
     }
 
     /**
-     * Enterprise 会员
+     * Enterprise 会员（自动创建订阅记录）
      */
     public function enterprise(): static
     {
         return $this->state(fn (array $attributes) => [
             'plan' => 'enterprise',
-            'subscription_expiry' => now()->addYear(),
-        ]);
+        ])->afterCreating(function (Member $member) {
+            $plan = Plan::findByCode('enterprise');
+            Subscription::create([
+                'member_id' => $member->id,
+                'plan_id' => $plan?->id,
+                'plan' => 'enterprise',
+                'status' => 'active',
+                'starts_at' => now(),
+                'expires_at' => now()->addYear(),
+                'daily_print_limit' => $plan?->daily_print_limit ?? -1,
+                'filters_enabled' => $plan?->filters_enabled ?? true,
+                'custom_template_enabled' => $plan?->custom_template_enabled ?? true,
+                'api_access_enabled' => $plan?->api_access_enabled ?? true,
+            ]);
+        });
     }
 
     /**
-     * 订阅已过期的会员
+     * 订阅已过期的会员（自动创建过期的订阅记录）
      */
     public function expired(): static
     {
         return $this->state(fn (array $attributes) => [
             'plan' => 'pro',
-            'subscription_expiry' => now()->subDays(7),
-        ]);
+        ])->afterCreating(function (Member $member) {
+            $plan = Plan::findByCode('pro');
+            Subscription::create([
+                'member_id' => $member->id,
+                'plan_id' => $plan?->id,
+                'plan' => 'pro',
+                'status' => 'expired',
+                'starts_at' => now()->subDays(37),
+                'expires_at' => now()->subDays(7),
+                'daily_print_limit' => $plan?->daily_print_limit ?? 100,
+                'filters_enabled' => $plan?->filters_enabled ?? true,
+                'custom_template_enabled' => $plan?->custom_template_enabled ?? true,
+                'api_access_enabled' => $plan?->api_access_enabled ?? false,
+            ]);
+        });
+    }
+
+    /**
+     * 带订阅记录的会员（通用方法）
+     */
+    public function withSubscription(?string $planCode = 'free', ?int $durationDays = null): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'plan' => $planCode,
+        ])->afterCreating(function (Member $member) use ($planCode, $durationDays) {
+            $plan = Plan::findByCode($planCode ?? 'free');
+            $duration = $durationDays ?? ($plan?->duration_days ?? 0);
+            
+            Subscription::create([
+                'member_id' => $member->id,
+                'plan_id' => $plan?->id,
+                'plan' => $planCode ?? 'free',
+                'status' => 'active',
+                'starts_at' => now(),
+                'expires_at' => $duration > 0 ? now()->addDays($duration) : null,
+                'daily_print_limit' => $plan?->daily_print_limit ?? 10,
+                'filters_enabled' => $plan?->filters_enabled ?? false,
+                'custom_template_enabled' => $plan?->custom_template_enabled ?? false,
+                'api_access_enabled' => $plan?->api_access_enabled ?? false,
+            ]);
+        });
     }
 
     /**

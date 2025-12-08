@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\Plan;
 use App\Models\User;
 use App\Models\Member;
 use App\Models\Subscription;
@@ -18,6 +19,12 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
+        // 先创建计划
+        $this->call(PlanSeeder::class);
+
+        // 创建系统设置
+        $this->call(SettingSeeder::class);
+
         // 创建后台管理员
         $admin = User::firstOrCreate(
             ['email' => 'admin@admin.com'],
@@ -37,6 +44,8 @@ class DatabaseSeeder extends Seeder
         }
 
         // 创建测试会员
+        $proPlan = Plan::findByCode('pro');
+        
         $testMember = Member::firstOrCreate(
             ['phone' => '13900000000', 'country_code' => '+86'],
             [
@@ -44,8 +53,8 @@ class DatabaseSeeder extends Seeder
                 'country_code' => '+86',
                 'phone' => '13900000000',
                 'password' => Hash::make('123456'),
+                'plan_id' => $proPlan?->id,
                 'plan' => 'pro',
-                'subscription_expiry' => now()->addDays(30),
                 'phone_verified_at' => now(),
                 'status' => Member::STATUS_ACTIVE,
             ]
@@ -54,14 +63,15 @@ class DatabaseSeeder extends Seeder
         if ($testMember->wasRecentlyCreated) {
             Subscription::create([
                 'member_id' => $testMember->id,
+                'plan_id' => $proPlan?->id,
                 'plan' => Subscription::PLAN_PRO,
                 'status' => Subscription::STATUS_ACTIVE,
                 'starts_at' => now(),
                 'expires_at' => now()->addDays(30),
-                'daily_print_limit' => 100,
-                'filters_enabled' => true,
-                'custom_template_enabled' => true,
-                'api_access_enabled' => false,
+                'daily_print_limit' => $proPlan?->daily_print_limit ?? 100,
+                'filters_enabled' => $proPlan?->filters_enabled ?? true,
+                'custom_template_enabled' => $proPlan?->custom_template_enabled ?? true,
+                'api_access_enabled' => $proPlan?->api_access_enabled ?? false,
             ]);
 
             $this->command->info('✅ 测试会员已创建:');

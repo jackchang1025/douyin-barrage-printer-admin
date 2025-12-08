@@ -15,6 +15,7 @@ class Subscription extends Model
      */
     protected $fillable = [
         'member_id',
+        'plan_id',
         'plan',
         'status',
         'starts_at',
@@ -58,10 +59,25 @@ class Subscription extends Model
     const STATUS_EXPIRED = 'expired';
 
     /**
-     * 计划配置
+     * 计划配置 - 优先从数据库获取，兼容旧代码
      */
-    public static function getPlanConfig(string $plan): array
+    public static function getPlanConfig(string|int $plan): array
     {
+        // 如果是数字（plan_id），直接从数据库获取
+        if (is_numeric($plan)) {
+            $planModel = Plan::find($plan);
+            if ($planModel) {
+                return $planModel->getConfig();
+            }
+        }
+
+        // 尝试通过代码从数据库获取
+        $planModel = Plan::findByCode((string) $plan);
+        if ($planModel) {
+            return $planModel->getConfig();
+        }
+
+        // 兼容旧代码的硬编码配置
         $configs = [
             self::PLAN_FREE => [
                 'name' => '免费版',
@@ -95,6 +111,14 @@ class Subscription extends Model
     public function member(): BelongsTo
     {
         return $this->belongsTo(Member::class);
+    }
+
+    /**
+     * 获取关联的计划
+     */
+    public function planModel(): BelongsTo
+    {
+        return $this->belongsTo(Plan::class, 'plan_id');
     }
 
     /**
@@ -140,37 +164,90 @@ class Subscription extends Model
 
     /**
      * 为会员创建新订阅
+     *
+     * @param Member $member 会员
+     * @param string|int|Plan $plan 计划代码、ID 或 Plan 模型
+     * @param int|null $durationDays 时长（天），null 则使用计划默认时长
      */
     public static function createForMember(
         Member $member,
-        string $plan,
-        int $durationDays = 30
+        string|int|Plan $plan,
+        ?int $durationDays = null
     ): self {
         // 取消会员当前有效订阅
         self::where('member_id', $member->id)
             ->where('status', self::STATUS_ACTIVE)
             ->update(['status' => self::STATUS_CANCELLED]);
 
-        $config = self::getPlanConfig($plan);
+        // 解析计划
+        $planModel = null;
+        $planCode = null;
+        $planId = null;
+
+        if ($plan instanceof Plan) {
+            $planModel = $plan;
+            $planCode = $plan->code;
+            $planId = $plan->id;
+        } elseif (is_numeric($plan)) {
+            $planModel = Plan::find($plan);
+            $planCode = $planModel?->code ?? self::PLAN_FREE;
+            $planId = $planModel?->id;
+        } else {
+            $planModel = Plan::findByCode($plan);
+            $planCode = $plan;
+            $planId = $planModel?->id;
+        }
+
+        // 获取配置
+        $config = $planModel ? $planModel->getConfig() : self::getPlanConfig($planCode);
+
+        // 确定时长
+        $duration = $durationDays ?? ($planModel?->duration_days ?? 30);
+
+        // 计算过期时间
+        // duration_days = 0 表示永久有效，不设置过期时间
+        // duration_days > 0 表示有限期，设置过期时间
+        $expiresAt = null;
+        if ($duration > 0) {
+            $expiresAt = now()->addDays($duration);
+        }
 
         $subscription = self::create([
             'member_id' => $member->id,
-            'plan' => $plan,
+            'plan_id' => $planId,
+            'plan' => $planCode,
             'status' => self::STATUS_ACTIVE,
             'starts_at' => now(),
-            'expires_at' => $plan === self::PLAN_FREE ? null : now()->addDays($durationDays),
+            'expires_at' => $expiresAt,
             'daily_print_limit' => $config['daily_print_limit'],
             'filters_enabled' => $config['filters_enabled'],
             'custom_template_enabled' => $config['custom_template_enabled'],
             'api_access_enabled' => $config['api_access_enabled'],
         ]);
 
-        // 更新会员的订阅信息
+        // 更新会员的计划信息（subscription_expiry 已移至 subscriptions 表）
         $member->update([
-            'plan' => $plan,
-            'subscription_expiry' => $subscription->expires_at,
+            'plan_id' => $planId,
+            'plan' => $planCode,
         ]);
 
         return $subscription;
+    }
+
+    /**
+     * 获取计划名称
+     */
+    public function getPlanNameAttribute(): string
+    {
+        if ($this->planModel) {
+            return $this->planModel->name;
+        }
+
+        return match ($this->plan) {
+            self::PLAN_FREE => '免费版',
+            self::PLAN_PRO => '专业版',
+            self::PLAN_ENTERPRISE => '企业版',
+            default => $this->plan,
+        };
     }
 }

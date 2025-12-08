@@ -9,6 +9,7 @@ use App\Exceptions\Auth\PhoneAlreadyRegisteredException;
 use App\Exceptions\Auth\SmsRateLimitException;
 use App\Http\Controllers\Controller;
 use App\Models\Member;
+use App\Models\Plan;
 use App\Models\Subscription;
 use App\Models\VerificationCode;
 use App\Services\SmsService;
@@ -65,13 +66,20 @@ class AuthController extends Controller
         // 记录登录信息
         $member->recordLogin($request->ip());
 
-        // 创建 API Token
+        // 单点登录：删除该用户所有旧 Token，确保同时只有一个设备登录
+        $member->tokens()->delete();
+
+        // 创建新的 API Token
         $token = $member->createToken('api-token')->plainTextToken;
+
+        // 获取订阅状态
+        $subscriptionStatus = $this->getSubscriptionStatus($member);
 
         return response()->json([
             'message' => '登录成功',
             'token' => $token,
             'user' => $this->formatMember($member),
+            'subscription' => $subscriptionStatus,
         ]);
     }
 
@@ -130,13 +138,20 @@ class AuthController extends Controller
         // 记录登录信息
         $member->recordLogin($request->ip());
 
-        // 创建 API Token
+        // 单点登录：删除该用户所有旧 Token，确保同时只有一个设备登录
+        $member->tokens()->delete();
+
+        // 创建新的 API Token
         $token = $member->createToken('api-token')->plainTextToken;
+
+        // 获取订阅状态
+        $subscriptionStatus = $this->getSubscriptionStatus($member);
 
         return response()->json([
             'message' => '登录成功',
             'token' => $token,
             'user' => $this->formatMember($member),
+            'subscription' => $subscriptionStatus,
         ]);
     }
 
@@ -233,6 +248,9 @@ class AuthController extends Controller
             throw new InvalidVerificationCodeException();
         }
 
+        // 获取默认计划
+        $defaultPlan = Plan::getDefault();
+
         // 创建会员
         $member = Member::create([
             'nickname' => '用户' . substr($validated['phone'], -4),
@@ -240,12 +258,18 @@ class AuthController extends Controller
             'phone' => $validated['phone'],
             'password' => Hash::make($validated['password']),
             'phone_verified_at' => now(),
-            'plan' => 'free',
+            'plan_id' => $defaultPlan?->id,
+            'plan' => $defaultPlan?->code ?? 'free',
             'status' => Member::STATUS_ACTIVE,
         ]);
 
-        // 创建免费订阅
-        Subscription::createForMember($member, Subscription::PLAN_FREE);
+        // 创建默认订阅
+        if ($defaultPlan) {
+            Subscription::createForMember($member, $defaultPlan);
+        } else {
+            // 兼容：如果没有默认计划，使用免费计划
+            Subscription::createForMember($member, Subscription::PLAN_FREE);
+        }
 
         return response()->json([
             'message' => '注册成功',
@@ -259,11 +283,50 @@ class AuthController extends Controller
      */
     public function logout(Request $request): JsonResponse
     {
-        // 删除当前 Token
-        $request->user()->currentAccessToken()->delete();
+        // 删除该用户所有 Token（单点登录：确保完全退出）
+        $request->user()->tokens()->delete();
 
         return response()->json([
             'message' => '已退出登录',
+        ]);
+    }
+
+    /**
+     * 验证 Token 有效性
+     *
+     * GET /api/auth/validate-token
+     *
+     * 用于前端启动时检测 Token 是否有效（单点登录检测）
+     */
+    public function validateToken(Request $request): JsonResponse
+    {
+        $member = $request->user();
+
+        if (!$member) {
+            return response()->json([
+                'valid' => false,
+                'message' => '登录已失效，您的账号已在其他设备登录',
+                'error_code' => 'TOKEN_INVALID',
+            ], 401);
+        }
+
+        $isActive = $member->isSubscriptionActive();
+
+        return response()->json([
+            'valid' => true,
+            'user' => [
+                'id' => $member->id,
+                'nickname' => $member->nickname,
+                'phone' => $member->phone,
+            ],
+            'subscription' => [
+                'is_active' => $isActive,
+                'is_expired' => !$isActive,
+                'plan' => $member->plan,
+                'plan_name' => $member->plan_name,
+                'expiry_date' => $member->subscription_expiry?->toIso8601String(),
+                'days_remaining' => $member->subscription_days_remaining,
+            ],
         ]);
     }
 
@@ -287,15 +350,8 @@ class AuthController extends Controller
     public function checkSubscription(Request $request): JsonResponse
     {
         $member = $request->user();
-        $features = $member->getSubscriptionFeatures();
 
-        return response()->json([
-            'active' => $member->isSubscriptionActive(),
-            'plan' => $member->plan,
-            'expiry_date' => $member->subscription_expiry?->toIso8601String(),
-            'days_remaining' => $member->subscription_days_remaining,
-            'features' => $features,
-        ]);
+        return response()->json($this->getSubscriptionStatus($member));
     }
 
     /**
@@ -303,18 +359,27 @@ class AuthController extends Controller
      */
     private function createMember(string $countryCode, string $phone): Member
     {
+        // 获取默认计划
+        $defaultPlan = Plan::getDefault();
+
         $member = Member::create([
             'nickname' => '用户' . substr($phone, -4),
             'country_code' => $countryCode,
             'phone' => $phone,
             'password' => Hash::make(str()->random(16)), // 随机密码
             'phone_verified_at' => now(),
-            'plan' => 'free',
+            'plan_id' => $defaultPlan?->id,
+            'plan' => $defaultPlan?->code ?? 'free',
             'status' => Member::STATUS_ACTIVE,
         ]);
 
-        // 创建免费订阅
-        Subscription::createForMember($member, Subscription::PLAN_FREE);
+        // 创建默认订阅
+        if ($defaultPlan) {
+            Subscription::createForMember($member, $defaultPlan);
+        } else {
+            // 兼容：如果没有默认计划，使用免费计划
+            Subscription::createForMember($member, Subscription::PLAN_FREE);
+        }
 
         return $member;
     }
@@ -331,10 +396,34 @@ class AuthController extends Controller
             'phone' => $member->phone,
             'avatar' => $member->avatar,
             'plan' => $member->plan,
+            'plan_name' => $member->plan_name,
             'subscription_expiry' => $member->subscription_expiry?->toIso8601String(),
             'phone_verified_at' => $member->phone_verified_at?->toIso8601String(),
             'status' => $member->status,
             'created_at' => $member->created_at->toIso8601String(),
+        ];
+    }
+
+    /**
+     * 获取订阅状态信息
+     */
+    private function getSubscriptionStatus(Member $member): array
+    {
+        $isActive = $member->isSubscriptionActive();
+        $features = $member->getSubscriptionFeatures();
+
+        return [
+            'is_active' => $isActive,
+            'is_expired' => !$isActive,
+            'plan' => $member->plan,
+            'plan_name' => $member->plan_name,
+            'expiry_date' => $member->subscription_expiry?->toIso8601String(),
+            'days_remaining' => $member->subscription_days_remaining,
+            'features' => $features,
+            // 如果订阅过期，提供续费提示信息
+            'renewal_message' => !$isActive
+                ? '您的订阅已过期，请联系客服续费以继续使用'
+                : null,
         ];
     }
 }

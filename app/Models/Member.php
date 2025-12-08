@@ -2,7 +2,10 @@
 
 namespace App\Models;
 
+use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -34,8 +37,8 @@ class Member extends Authenticatable
         'phone',
         'password',
         'avatar',
+        'plan_id',
         'plan',
-        'subscription_expiry',
         'phone_verified_at',
         'status',
         'last_login_at',
@@ -61,7 +64,6 @@ class Member extends Authenticatable
     {
         return [
             'phone_verified_at' => 'datetime',
-            'subscription_expiry' => 'datetime',
             'last_login_at' => 'datetime',
             'password' => 'hashed',
         ];
@@ -80,6 +82,14 @@ class Member extends Authenticatable
     public function subscriptions(): HasMany
     {
         return $this->hasMany(Subscription::class, 'member_id');
+    }
+
+    /**
+     * 获取会员的当前计划
+     */
+    public function planModel(): BelongsTo
+    {
+        return $this->belongsTo(Plan::class, 'plan_id');
     }
 
     /**
@@ -113,28 +123,64 @@ class Member extends Authenticatable
     }
 
     /**
+     * 获取订阅过期时间（从最新订阅记录获取）
+     * 
+     * 这是一个虚拟属性，数据来源于 subscriptions 表
+     * 保持向后兼容，使用方式不变：$member->subscription_expiry
+     */
+    public function getSubscriptionExpiryAttribute(): ?Carbon
+    {
+        // 先尝试从已加载的关联获取
+        if ($this->relationLoaded('latestSubscription') && $this->latestSubscription) {
+            return $this->latestSubscription->expires_at;
+        }
+
+        // 否则查询最新订阅
+        $subscription = $this->latestSubscription;
+        return $subscription?->expires_at;
+    }
+
+    /**
+     * 获取会员最新的订阅记录
+     */
+    public function latestSubscription(): HasOne
+    {
+        return $this->hasOne(Subscription::class, 'member_id')
+            ->latest('created_at');
+    }
+
+    /**
      * 获取订阅剩余天数
      */
     public function getSubscriptionDaysRemainingAttribute(): int
     {
-        if (!$this->subscription_expiry) {
+        $expiry = $this->subscription_expiry;
+        if (!$expiry) {
             return 0;
         }
 
-        $days = now()->diffInDays($this->subscription_expiry, false);
+        $days = now()->diffInDays($expiry, false);
         return max(0, (int) $days);
     }
 
     /**
      * 检查订阅是否有效
+     * 
+     * 逻辑：
+     * 1. 如果没有过期时间（subscription_expiry 为 null），视为永久有效
+     * 2. 如果有过期时间，检查是否未过期
      */
     public function isSubscriptionActive(): bool
     {
-        if ($this->plan === 'free') {
+        $expiry = $this->subscription_expiry;
+
+        // 没有设置过期时间，视为永久有效
+        if ($expiry === null) {
             return true;
         }
 
-        return $this->subscription_expiry && $this->subscription_expiry->isFuture();
+        // 有过期时间，检查是否未过期
+        return $expiry->isFuture();
     }
 
     /**
@@ -142,6 +188,17 @@ class Member extends Authenticatable
      */
     public function getSubscriptionFeatures(): array
     {
+        // 优先从关联的 Plan 模型获取
+        if ($this->planModel) {
+            return [
+                'daily_print_limit' => $this->planModel->daily_print_limit,
+                'filters' => $this->planModel->filters_enabled,
+                'custom_template' => $this->planModel->custom_template_enabled,
+                'api_access' => $this->planModel->api_access_enabled,
+            ];
+        }
+
+        // 兼容旧代码
         $features = [
             'daily_print_limit' => 10,
             'filters' => false,
@@ -169,6 +226,23 @@ class Member extends Authenticatable
         }
 
         return $features;
+    }
+
+    /**
+     * 获取计划名称
+     */
+    public function getPlanNameAttribute(): string
+    {
+        if ($this->planModel) {
+            return $this->planModel->name;
+        }
+
+        return match ($this->plan) {
+            'free' => '免费版',
+            'pro' => '专业版',
+            'enterprise' => '企业版',
+            default => $this->plan ?? '免费版',
+        };
     }
 
     /**

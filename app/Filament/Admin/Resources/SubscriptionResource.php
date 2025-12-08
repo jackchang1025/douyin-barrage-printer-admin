@@ -4,7 +4,9 @@ namespace App\Filament\Admin\Resources;
 
 use App\Filament\Admin\Resources\SubscriptionResource\Pages;
 use App\Models\Member;
+use App\Models\Plan;
 use App\Models\Subscription;
+use Carbon\Carbon;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -17,13 +19,15 @@ class SubscriptionResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-credit-card';
 
-    protected static ?string $navigationLabel = '订阅管理';
+    protected static ?string $navigationLabel = '订阅记录';
 
     protected static ?string $modelLabel = '订阅';
 
     protected static ?string $pluralModelLabel = '订阅';
 
     protected static ?int $navigationSort = 2;
+
+    protected static ?string $navigationGroup = '订阅管理';
 
     public static function form(Form $form): Form
     {
@@ -39,22 +43,37 @@ class SubscriptionResource extends Resource
                             ->required()
                             ->getOptionLabelFromRecordUsing(fn(Member $record) => "{$record->nickname} ({$record->country_code}{$record->phone})"),
 
-                        Forms\Components\Select::make('plan')
+                        Forms\Components\Select::make('plan_id')
                             ->label('订阅计划')
-                            ->options([
-                                'free' => '免费版',
-                                'pro' => '专业版',
-                                'enterprise' => '企业版',
-                            ])
+                            ->relationship('planModel', 'name')
+                            ->getOptionLabelFromRecordUsing(fn(Plan $record) => "{$record->name} ({$record->price_text}) - {$record->duration_text}")
+                            ->preload()
+                            ->searchable()
                             ->required()
                             ->live()
-                            ->afterStateUpdated(function ($state, Forms\Set $set) {
-                                $config = Subscription::getPlanConfig($state);
-                                $set('daily_print_limit', $config['daily_print_limit']);
-                                $set('filters_enabled', $config['filters_enabled']);
-                                $set('custom_template_enabled', $config['custom_template_enabled']);
-                                $set('api_access_enabled', $config['api_access_enabled']);
+                            ->afterStateUpdated(function ($state, Forms\Set $set, Forms\Get $get) {
+                                if ($state) {
+                                    $plan = Plan::find($state);
+                                    if ($plan) {
+                                        $set('plan', $plan->code);
+                                        $set('daily_print_limit', $plan->daily_print_limit);
+                                        $set('filters_enabled', $plan->filters_enabled);
+                                        $set('custom_template_enabled', $plan->custom_template_enabled);
+                                        $set('api_access_enabled', $plan->api_access_enabled);
+
+                                        // 自动计算过期时间（基于计划的默认时长）
+                                        $startsAt = $get('starts_at') ?? now();
+                                        if ($plan->duration_days > 0) {
+                                            $set('expires_at', Carbon::parse($startsAt)->addDays($plan->duration_days));
+                                        } elseif ($plan->duration_days === 0) {
+                                            // 永久有效
+                                            $set('expires_at', null);
+                                        }
+                                    }
+                                }
                             }),
+
+                        Forms\Components\Hidden::make('plan'),
 
                         Forms\Components\Select::make('status')
                             ->label('状态')
@@ -71,11 +90,23 @@ class SubscriptionResource extends Resource
                                 Forms\Components\DateTimePicker::make('starts_at')
                                     ->label('开始时间')
                                     ->required()
-                                    ->default(now()),
+                                    ->default(now())
+                                    ->live()
+                                    ->afterStateUpdated(function ($state, Forms\Set $set, Forms\Get $get) {
+                                        // 开始时间变化时，重新计算过期时间
+                                        $planId = $get('plan_id');
+                                        if ($planId && $state) {
+                                            $plan = Plan::find($planId);
+                                            if ($plan && $plan->duration_days > 0) {
+                                                $set('expires_at', Carbon::parse($state)->addDays($plan->duration_days));
+                                            }
+                                        }
+                                    }),
 
                                 Forms\Components\DateTimePicker::make('expires_at')
                                     ->label('过期时间')
-                                    ->nullable(),
+                                    ->nullable()
+                                    ->helperText('留空表示永久有效，选择计划后会自动计算'),
                             ]),
                     ]),
 
@@ -127,21 +158,11 @@ class SubscriptionResource extends Resource
                     ->label('手机号')
                     ->formatStateUsing(fn(Subscription $record) => $record->member?->country_code . ' ' . $record->member?->phone),
 
-                Tables\Columns\TextColumn::make('plan')
+                Tables\Columns\TextColumn::make('planModel.name')
                     ->label('计划')
                     ->badge()
-                    ->formatStateUsing(fn(string $state): string => match ($state) {
-                        'free' => '免费版',
-                        'pro' => '专业版',
-                        'enterprise' => '企业版',
-                        default => $state,
-                    })
-                    ->color(fn(string $state): string => match ($state) {
-                        'free' => 'gray',
-                        'pro' => 'success',
-                        'enterprise' => 'warning',
-                        default => 'gray',
-                    }),
+                    ->default(fn(Subscription $record): string => $record->plan_name)
+                    ->color(fn(Subscription $record): string => $record->planModel?->color ?? 'gray'),
 
                 Tables\Columns\TextColumn::make('status')
                     ->label('状态')
@@ -190,13 +211,10 @@ class SubscriptionResource extends Resource
                     ),
             ])
             ->filters([
-                Tables\Filters\SelectFilter::make('plan')
+                Tables\Filters\SelectFilter::make('plan_id')
                     ->label('订阅计划')
-                    ->options([
-                        'free' => '免费版',
-                        'pro' => '专业版',
-                        'enterprise' => '企业版',
-                    ]),
+                    ->relationship('planModel', 'name')
+                    ->preload(),
 
                 Tables\Filters\SelectFilter::make('status')
                     ->label('状态')
@@ -234,14 +252,43 @@ class SubscriptionResource extends Resource
                         if ($currentExpiry->isPast()) {
                             $currentExpiry = now();
                         }
+                        $newExpiry = $currentExpiry->copy()->addDays($data['duration']);
+
+                        // 只需更新订阅记录（单一数据源）
                         $record->update([
-                            'expires_at' => $currentExpiry->addDays($data['duration']),
+                            'expires_at' => $newExpiry,
                             'status' => 'active',
+                        ]);
+                    }),
+                Tables\Actions\Action::make('changePlan')
+                    ->label('更换计划')
+                    ->icon('heroicon-o-arrow-path')
+                    ->color('warning')
+                    ->form([
+                        Forms\Components\Select::make('plan_id')
+                            ->label('新计划')
+                            ->options(fn() => Plan::active()->ordered()->pluck('name', 'id'))
+                            ->required(),
+                    ])
+                    ->action(function (Subscription $record, array $data) {
+                        $plan = Plan::find($data['plan_id']);
+                        if (!$plan) {
+                            return;
+                        }
+
+                        $record->update([
+                            'plan_id' => $plan->id,
+                            'plan' => $plan->code,
+                            'daily_print_limit' => $plan->daily_print_limit,
+                            'filters_enabled' => $plan->filters_enabled,
+                            'custom_template_enabled' => $plan->custom_template_enabled,
+                            'api_access_enabled' => $plan->api_access_enabled,
                         ]);
 
                         // 同步更新会员信息
                         $record->member?->update([
-                            'subscription_expiry' => $record->expires_at,
+                            'plan_id' => $plan->id,
+                            'plan' => $plan->code,
                         ]);
                     }),
                 Tables\Actions\Action::make('cancel')

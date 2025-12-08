@@ -3,6 +3,7 @@
 namespace App\Filament\Admin\Resources\SubscriptionResource\Pages;
 
 use App\Filament\Admin\Resources\SubscriptionResource;
+use App\Models\Subscription;
 use Filament\Actions;
 use Filament\Resources\Pages\EditRecord;
 
@@ -17,16 +18,22 @@ class EditSubscription extends EditRecord
         ];
     }
 
+    /**
+     * 保存后同步更新关联的会员记录
+     * 
+     * 注意：subscription_expiry 已从 members 表移除
+     * 现在由 subscriptions 表统一管理，这里只需同步计划信息
+     */
     protected function afterSave(): void
     {
-        // 保存订阅后同步更新用户信息
+        /** @var Subscription $subscription */
         $subscription = $this->record;
-        if ($subscription->status === 'active') {
-            $subscription->user?->update([
-                'plan' => $subscription->plan,
-                'subscription_expiry' => $subscription->expires_at,
-            ]);
-        }
+
+        // 同步更新会员的计划信息（仅计划，不包含过期时间）
+        $subscription->member?->update([
+            'plan_id' => $subscription->plan_id,
+            'plan' => $subscription->plan,
+        ]);
     }
 }
 
