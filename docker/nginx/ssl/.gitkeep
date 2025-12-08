@@ -1,0 +1,7 @@
+# SSL 证书目录
+# 由 ssl-manager.sh 自动管理
+
+# 文件说明：
+# - fullchain.pem  证书链文件
+# - privkey.pem    私钥文件
+
