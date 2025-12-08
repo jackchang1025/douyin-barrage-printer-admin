@@ -193,12 +193,15 @@ pre_install_vendor() {
         echo_step "首次部署：预安装 Composer 依赖..."
         echo_info "使用临时 PHP 容器安装 vendor..."
         
-        # 使用官方 PHP 镜像安装 composer 依赖
+        # 使用官方 composer 镜像安装依赖
+        # --ignore-platform-reqs: 忽略平台扩展要求（实际运行环境 Sail 有完整扩展）
+        # COMPOSER_ALLOW_SUPERUSER: 允许 root 运行
         docker run --rm \
-            -v "$(pwd)":/var/www/html \
-            -w /var/www/html \
+            -e COMPOSER_ALLOW_SUPERUSER=1 \
+            -v "$(pwd)":/app \
+            -w /app \
             composer:latest \
-            composer install --no-dev --no-scripts --no-interaction --prefer-dist
+            composer install --no-dev --no-scripts --no-interaction --prefer-dist --ignore-platform-reqs
         
         if [ $? -ne 0 ]; then
             echo_error "Composer 依赖安装失败"
