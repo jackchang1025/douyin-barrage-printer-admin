@@ -28,8 +28,14 @@ Route::prefix('app')->group(function () {
     // 下载安装包（按文件名，electron-updater 使用）
     Route::get('/{fileName}', [AppVersionController::class, 'downloadByFileName'])
         ->where('fileName', '.*\.(exe|dmg|AppImage|zip)$');
+
     // 上传新版本（需要 X-Upload-Token）
     Route::post('/upload', [AppVersionController::class, 'upload']);
+
+    // 分块上传接口（用于大文件，绕过 Cloudflare 100MB 限制）
+    Route::post('/upload/init', [AppVersionController::class, 'initChunkedUpload']);
+    Route::post('/upload/chunk', [AppVersionController::class, 'uploadChunk']);
+    Route::post('/upload/complete', [AppVersionController::class, 'completeChunkedUpload']);
 });
 
 // 公开路由（无需认证）
