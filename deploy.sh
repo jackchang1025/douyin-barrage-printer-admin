@@ -201,7 +201,7 @@ pre_install_vendor() {
             -v "$(pwd)":/app \
             -w /app \
             composer:latest \
-            composer install --no-dev --no-scripts --no-interaction --prefer-dist --ignore-platform-reqs
+            composer install --no-scripts --no-interaction --prefer-dist --ignore-platform-reqs
         
         if [ $? -ne 0 ]; then
             echo_error "Composer 依赖安装失败"
