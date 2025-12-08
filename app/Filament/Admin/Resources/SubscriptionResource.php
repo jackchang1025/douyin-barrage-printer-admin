@@ -97,8 +97,13 @@ class SubscriptionResource extends Resource
                                         $planId = $get('plan_id');
                                         if ($planId && $state) {
                                             $plan = Plan::find($planId);
-                                            if ($plan && $plan->duration_days > 0) {
-                                                $set('expires_at', Carbon::parse($state)->addDays($plan->duration_days));
+                                            if ($plan) {
+                                                if ($plan->duration_days > 0) {
+                                                    $set('expires_at', Carbon::parse($state)->addDays($plan->duration_days));
+                                                } elseif ($plan->duration_days === 0) {
+                                                    // 永久有效
+                                                    $set('expires_at', null);
+                                                }
                                             }
                                         }
                                     }),

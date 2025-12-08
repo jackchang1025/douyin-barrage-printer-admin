@@ -127,17 +127,13 @@ class Member extends Authenticatable
      * 
      * 这是一个虚拟属性，数据来源于 subscriptions 表
      * 保持向后兼容，使用方式不变：$member->subscription_expiry
+     * 
+     * 注意：使用 $this->latestSubscription（属性访问）是正确的 Laravel 写法，
+     * Laravel 的 __get() 会自动处理关联加载和缓存。
      */
     public function getSubscriptionExpiryAttribute(): ?Carbon
     {
-        // 先尝试从已加载的关联获取
-        if ($this->relationLoaded('latestSubscription') && $this->latestSubscription) {
-            return $this->latestSubscription->expires_at;
-        }
-
-        // 否则查询最新订阅
-        $subscription = $this->latestSubscription;
-        return $subscription?->expires_at;
+        return $this->latestSubscription?->expires_at;
     }
 
     /**
@@ -264,4 +260,3 @@ class Member extends Authenticatable
         ]);
     }
 }
-

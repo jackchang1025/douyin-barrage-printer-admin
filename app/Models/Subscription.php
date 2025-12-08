@@ -198,11 +198,27 @@ class Subscription extends Model
             $planId = $planModel?->id;
         }
 
+        // 如果找不到有效计划，尝试获取默认计划
+        if (!$planModel) {
+            $planModel = Plan::getDefault();
+            if ($planModel) {
+                $planCode = $planModel->code;
+                $planId = $planModel->id;
+            }
+        }
+
+        // 如果仍然没有有效计划，抛出异常避免创建孤立记录
+        if (!$planId) {
+            throw new \InvalidArgumentException(
+                "无法创建订阅：找不到有效的计划。请确保数据库中存在计划记录，或指定有效的计划 ID/代码。提供的计划: {$planCode}"
+            );
+        }
+
         // 获取配置
-        $config = $planModel ? $planModel->getConfig() : self::getPlanConfig($planCode);
+        $config = $planModel->getConfig();
 
         // 确定时长
-        $duration = $durationDays ?? ($planModel?->duration_days ?? 30);
+        $duration = $durationDays ?? $planModel->duration_days;
 
         // 计算过期时间
         // duration_days = 0 表示永久有效，不设置过期时间
