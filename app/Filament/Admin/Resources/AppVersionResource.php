@@ -32,11 +32,11 @@ class AppVersionResource extends Resource
         return $form
             ->schema([
                 Forms\Components\Section::make('版本信息')
-                    ->schema([
-                        Forms\Components\TextInput::make('version')
+            ->schema([
+                Forms\Components\TextInput::make('version')
                             ->label('版本号')
-                            ->required()
-                            ->maxLength(20)
+                    ->required()
+                    ->maxLength(20)
                             ->placeholder('如：1.1.0')
                             ->helperText('格式：主版本.次版本.修订版本'),
 
@@ -58,15 +58,15 @@ class AppVersionResource extends Resource
                             ->maxSize(512000) // 500MB
                             ->columnSpanFull(),
 
-                        Forms\Components\TextInput::make('file_name')
+                Forms\Components\TextInput::make('file_name')
                             ->label('文件名')
                             ->readOnly()
                             ->helperText('保存后自动填充'),
 
-                        Forms\Components\TextInput::make('file_size')
+                Forms\Components\TextInput::make('file_size')
                             ->label('文件大小(字节)')
                             ->readOnly()
-                            ->numeric()
+                    ->numeric()
                             ->helperText('保存后自动填充'),
 
                         Forms\Components\Textarea::make('sha512')
@@ -82,13 +82,13 @@ class AppVersionResource extends Resource
                     ->schema([
                         Forms\Components\RichEditor::make('release_notes')
                             ->label('更新日志')
-                            ->columnSpanFull(),
+                    ->columnSpanFull(),
 
-                        Forms\Components\Toggle::make('is_mandatory')
+                Forms\Components\Toggle::make('is_mandatory')
                             ->label('强制更新')
                             ->helperText('开启后用户必须更新才能继续使用'),
 
-                        Forms\Components\Toggle::make('is_published')
+                Forms\Components\Toggle::make('is_published')
                             ->label('发布')
                             ->helperText('发布后用户可以下载和更新')
                             ->reactive()

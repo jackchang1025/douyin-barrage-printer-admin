@@ -19,22 +19,25 @@ class HomeController extends Controller
         $siteSlogan = Setting::get('site_slogan', '专业的直播弹幕打印解决方案');
         $siteDescription = Setting::get('site_description', '实时捕获抖音直播间弹幕，支持自定义打印模板，让您的直播互动更加精彩');
 
+        // 获取媒体设置
+        $siteFavicon = $this->getImageUrl(Setting::get('site_favicon'));
+        $siteLogo = $this->getImageUrl(Setting::get('site_logo'));
+        $heroMedia = $this->getHeroMedia();
+        $heroVideoUrl = Setting::get('hero_video_url');
+
+        // 获取 SEO 设置
+        $seoKeywords = Setting::get('seo_keywords', '抖音弹幕打印,直播弹幕,弹幕打印机,抖音直播工具');
+        $seoAuthor = Setting::get('seo_author', $siteName);
+        $ogImage = $this->getImageUrl(Setting::get('og_image'));
+
         // 获取价格计划
         $plans = Plan::active()->ordered()->get();
 
         // 获取联系方式
         $contactPhone = Setting::get('contact_phone');
-        $contactWechatQrcode = Setting::get('contact_wechat_qrcode');
-        $contactQqQrcode = Setting::get('contact_qq_qrcode');
+        $contactWechatQrcode = $this->getImageUrl(Setting::get('contact_wechat_qrcode'));
+        $contactQqQrcode = $this->getImageUrl(Setting::get('contact_qq_qrcode'));
         $contactDescription = Setting::get('contact_description', '如需续费或咨询，请联系客服');
-
-        // 处理图片URL
-        if ($contactWechatQrcode) {
-            $contactWechatQrcode = $this->getImageUrl($contactWechatQrcode);
-        }
-        if ($contactQqQrcode) {
-            $contactQqQrcode = $this->getImageUrl($contactQqQrcode);
-        }
 
         // 功能特性
         $features = [
@@ -64,6 +67,13 @@ class HomeController extends Controller
             'siteName',
             'siteSlogan',
             'siteDescription',
+            'siteFavicon',
+            'siteLogo',
+            'heroMedia',
+            'heroVideoUrl',
+            'seoKeywords',
+            'seoAuthor',
+            'ogImage',
             'plans',
             'features',
             'contactPhone',
@@ -76,12 +86,55 @@ class HomeController extends Controller
     /**
      * 获取图片完整URL
      */
-    protected function getImageUrl(string $path): string
+    protected function getImageUrl(?string $path): ?string
     {
+        if (empty($path)) {
+            return null;
+        }
+
         if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
             return $path;
         }
 
         return Storage::disk('public')->url($path);
+    }
+
+    /**
+     * 获取首页展示媒体
+     */
+    protected function getHeroMedia(): array
+    {
+        $media = Setting::get('hero_media', []);
+        
+        if (empty($media)) {
+            return [];
+        }
+
+        // 确保是数组
+        if (is_string($media)) {
+            $media = json_decode($media, true) ?? [];
+        }
+
+        // 转换为完整URL
+        return array_map(function ($path) {
+            return [
+                'url' => $this->getImageUrl($path),
+                'type' => $this->getMediaType($path),
+            ];
+        }, $media);
+    }
+
+    /**
+     * 获取媒体类型
+     */
+    protected function getMediaType(string $path): string
+    {
+        $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+        
+        return match ($extension) {
+            'gif' => 'gif',
+            'mp4', 'webm', 'ogg' => 'video',
+            default => 'image',
+        };
     }
 }

@@ -67,7 +67,7 @@ class Setting extends Model
 
         return Cache::remember($cacheKey, self::CACHE_TTL, function () use ($key, $default) {
             $setting = self::where('key', $key)->first();
-            
+
             if (!$setting) {
                 return $default;
             }
@@ -193,4 +193,3 @@ class Setting extends Model
         }
     }
 }
-
