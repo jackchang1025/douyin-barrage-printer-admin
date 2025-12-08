@@ -15,6 +15,9 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->statefulApi();
+        
+        // 信任所有代理（Cloudflare + Nginx）
+        $middleware->trustProxies(at: '*');
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // 自定义 API 认证失败响应（单点登录提示）

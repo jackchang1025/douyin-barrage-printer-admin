@@ -22,3 +22,15 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+public/.well-known
+
+# SSL 证书（敏感）
+docker/nginx/ssl/*.pem
+docker/nginx/ssl/*.key
+docker/nginx/ssl/*.crt
+
+# 配置备份文件
+*.bak
+
+# acme.sh 验证文件
+public/.well-known/acme-challenge/
